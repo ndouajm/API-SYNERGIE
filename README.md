@@ -22,6 +22,21 @@ Pour créer le super administrateur par seeder, renseigner `SUPER_ADMIN_NAME`, `
 
 Pour le frontend, définir `FRONTEND_URL` dans `.env` du backend avec son origine exacte (par exemple `http://localhost:5173`), puis depuis la racine copier `.env.example` vers `.env`, vérifier `VITE_API_URL=http://127.0.0.1:8000/api` et lancer React avec `npm run dev`.
 
+## Déploiement en production
+
+Pour autoriser le frontend `https://dev.synergieci.org` à appeler l'API, définir dans le fichier `.env` **du serveur Laravel** :
+
+```dotenv
+APP_URL=https://api.synergieci.org
+FRONTEND_URL=https://dev.synergieci.org
+```
+
+`FRONTEND_URL` doit contenir l'origine du navigateur (protocole + nom d'hôte), sans chemin ni slash final. Si plusieurs frontends doivent être autorisés, les séparer par des virgules, par exemple `FRONTEND_URL=https://dev.synergieci.org,https://synergieci.org`. Ne pas utiliser `*` pour autoriser toutes les origines.
+
+Après modification, depuis le dossier du backend, rafraîchir la configuration Laravel : `php artisan config:clear`, puis `php artisan config:cache` si le déploiement utilise le cache de configuration. Vérifier aussi que le serveur web ou le proxy ne retire pas les en-têtes `Access-Control-Allow-Origin`.
+
+Le frontend de production doit être compilé avec `VITE_API_URL=https://api.synergieci.org/api`. Cette variable est intégrée au build Vite : la définir sur le serveur web après compilation ne modifie pas les fichiers déjà générés.
+
 ## Tester la connexion avec Postman
 
 1. Créer d'abord un compte de bureau dans le terminal du dossier `backend` avec `php artisan app:create-bureau-user`.
