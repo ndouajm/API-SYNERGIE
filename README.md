@@ -18,6 +18,8 @@ php artisan serve --host=127.0.0.1 --port=8000
 
 La commande de création du compte demande interactivement le nom, l'adresse email et un mot de passe d'au moins 12 caractères. Aucun compte par défaut n'est créé. Pour une installation déjà en cours, relancer `php artisan migrate` après la mise à jour : la nouvelle migration attribue le rôle Administrateur aux comptes bureau existants pour préserver leur accès. La commande Artisan crée aussi un nouveau compte en tant qu'administrateur.
 
+Pour créer le super administrateur par seeder, renseigner `SUPER_ADMIN_NAME`, `SUPER_ADMIN_EMAIL` et `SUPER_ADMIN_PASSWORD` dans `.env` (mot de passe d'au moins 12 caractères), puis exécuter `php artisan db:seed`. Le seeder peut être relancé : il met à jour le compte correspondant à l'email et lui attribue le rôle `admin`. Ne pas enregistrer le mot de passe dans le dépôt.
+
 Pour le frontend, définir `FRONTEND_URL` dans `.env` du backend avec son origine exacte (par exemple `http://localhost:5173`), puis depuis la racine copier `.env.example` vers `.env`, vérifier `VITE_API_URL=http://127.0.0.1:8000/api` et lancer React avec `npm run dev`.
 
 ## Tester la connexion avec Postman
@@ -64,6 +66,8 @@ Les erreurs de validation utilisent le format Laravel `422` avec un objet `error
 ## Rôles et permissions
 
 Les administrateurs gèrent les comptes dans **Bureau → Comptes et rôles**. Plusieurs rôles peuvent être attribués à un compte ; leurs permissions s'additionnent. Le rôle Administrateur donne accès à toutes les fonctions.
+
+Le catalogue des rôles prédéfinis est maintenu dans `config/rbac.php` et servi par l'API ; il n'existe donc pas de table de rôles à peupler avec un seeder. La migration crée uniquement la table `user_roles`, qui stocke les rôles effectivement attribués aux comptes.
 
 | Rôle prédéfini | Accès |
 |---|---|
