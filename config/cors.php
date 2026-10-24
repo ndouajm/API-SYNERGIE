@@ -21,10 +21,12 @@ return [
 
     'allowed_origins' => array_filter(array_map(
         'trim',
-        explode(',', env('FRONTEND_URL', 'http://localhost:5173')),
+        explode(',', env('FRONTEND_URL', 'https://dev.synergieci.org')),
     )),
 
-    'allowed_origins_patterns' => [],
+    'allowed_origins_patterns' => [
+        '/^http:\/\/localhost(:\d+)?$/',
+    ],
 
     'allowed_headers' => ['*'],
 
