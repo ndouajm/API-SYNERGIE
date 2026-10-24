@@ -19,10 +19,10 @@ return [
 
     'allowed_methods' => ['*'],
 
-    'allowed_origins' => ['https://dev.synergieci.org'],
-'supports_credentials' => true,
-
-    // 'allowed_origins' => array_filter(explode(',', env('FRONTEND_URL', 'http://localhost:5173','https://dev.synergieci.org'))),
+    'allowed_origins' => array_filter(array_map(
+        'trim',
+        explode(',', env('FRONTEND_URL', 'http://localhost:5173')),
+    )),
 
     'allowed_origins_patterns' => [],
 
@@ -32,6 +32,6 @@ return [
 
     'max_age' => 0,
 
-    // 'supports_credentials' => false,
+    'supports_credentials' => false,
 
 ];

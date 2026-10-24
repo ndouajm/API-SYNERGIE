@@ -20,7 +20,7 @@ La commande de création du compte demande interactivement le nom, l'adresse ema
 
 Pour créer le super administrateur par seeder, renseigner `SUPER_ADMIN_NAME`, `SUPER_ADMIN_EMAIL` et `SUPER_ADMIN_PASSWORD` dans `.env` (mot de passe d'au moins 12 caractères), puis exécuter `php artisan db:seed`. Le seeder peut être relancé : il met à jour le compte correspondant à l'email et lui attribue le rôle `admin`. Ne pas enregistrer le mot de passe dans le dépôt.
 
-Pour le frontend, définir `FRONTEND_URL` dans `.env` du backend avec son origine exacte (par exemple `http://localhost:5173`), puis depuis la racine copier `.env.example` vers `.env`, vérifier `VITE_API_URL=http://127.0.0.1:8000/api` et lancer React avec `npm run dev`.
+Pour le frontend, définir `FRONTEND_URL` dans `.env` du backend avec son origine exacte (par exemple `http://localhost:5173`), puis depuis la racine copier `.env.example` vers `.env`, vérifier `VITE_API_URL=http://127.0.0.1:8000/api` et lancer React avec `npm run dev`. Si le frontend local appelle l'API de production, le `.env` **du serveur API** doit aussi autoriser `http://localhost:5173` en plus du domaine de production.
 
 ## Déploiement en production
 
@@ -28,10 +28,10 @@ Pour autoriser le frontend `https://dev.synergieci.org` à appeler l'API, défin
 
 ```dotenv
 APP_URL=https://api.synergieci.org
-FRONTEND_URL=https://dev.synergieci.org
+FRONTEND_URL=https://dev.synergieci.org,http://localhost:5173
 ```
 
-`FRONTEND_URL` doit contenir l'origine du navigateur (protocole + nom d'hôte), sans chemin ni slash final. Si plusieurs frontends doivent être autorisés, les séparer par des virgules, par exemple `FRONTEND_URL=https://dev.synergieci.org,https://synergieci.org`. Ne pas utiliser `*` pour autoriser toutes les origines.
+`FRONTEND_URL` doit contenir chacune des origines du navigateur (protocole + nom d'hôte + port éventuel), sans chemin ni slash final, séparées par des virgules sans espaces. Ici, les deux origines sont autorisées : `https://dev.synergieci.org` pour le site et `http://localhost:5173` pour le développement local. N'ajoutez que les origines réellement utilisées et ne remplacez pas cette liste par `*`.
 
 Après modification, depuis le dossier du backend, rafraîchir la configuration Laravel : `php artisan config:clear`, puis `php artisan config:cache` si le déploiement utilise le cache de configuration. Vérifier aussi que le serveur web ou le proxy ne retire pas les en-têtes `Access-Control-Allow-Origin`.
 
