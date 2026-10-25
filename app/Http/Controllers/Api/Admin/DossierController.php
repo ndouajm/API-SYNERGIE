@@ -5,9 +5,9 @@ namespace App\Http\Controllers\Api\Admin;
 use App\Http\Controllers\Controller;
 use App\Models\AdherentDossier;
 use App\Support\SyndicalRegion;
+use App\Support\XlsxExport;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
-use Illuminate\Support\Facades\Response;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Validation\Rule;
 use RuntimeException;
@@ -107,19 +107,13 @@ class DossierController extends Controller
                 'Employeur', 'Établissement', 'Région syndicale', 'Syndicat précédent', 'Téléphone', 'WhatsApp', 'Fait à', 'Date',
             ];
 
-        return Response::streamDownload(function () use ($fields, $selectedIds, $isRoster) {
-            $output = fopen('php://output', 'w');
-            fwrite($output, "\xEF\xBB\xBF");
-            if ($isRoster) {
-                fputcsv($output, ['LISTE DES SYNDIQUÉS DE SYNERGIE'], ';', '"', '');
-            }
-            fputcsv($output, $fields, ';');
-            $query = AdherentDossier::query()->latest();
-            if ($selectedIds !== null) {
-                $query->whereIn('id', $selectedIds);
-            }
+        $query = AdherentDossier::query()->latest();
+        if ($selectedIds !== null) {
+            $query->whereIn('id', $selectedIds);
+        }
+        $rows = (function () use ($query, $isRoster) {
             foreach ($query->cursor() as $index => $dossier) {
-                $cells = $isRoster
+                yield $isRoster
                     ? [
                         $index + 1,
                         $dossier->numero,
@@ -146,15 +140,15 @@ class DossierController extends Controller
                         $dossier->lieu,
                         $dossier->created_at?->format('Y-m-d H:i:s'),
                     ];
-                $cells = array_map(fn ($value) => is_string($value) && preg_match('/^\s*[=+\-@]/u', $value) ? "'".$value : $value, $cells);
-                fputcsv($output, [
-                    ...$cells,
-                ], ';', '"', '');
             }
-            fclose($output);
-        }, ($isRoster ? 'liste-syndiques-synergie-' : 'adhesions-').now()->format('Y-m-d').'.csv', [
-            'Content-Type' => 'text/csv; charset=UTF-8',
-        ]);
+        })();
+
+        return XlsxExport::download(
+            ($isRoster ? 'liste-syndiques-synergie-' : 'adhesions-').now()->format('Y-m-d').'.xlsx',
+            $isRoster ? 'LISTE DES SYNDIQUÉS DE SYNERGIE' : 'LISTE DES ADHÉSIONS DE SYNERGIE',
+            $fields,
+            $rows,
+        );
     }
 
     public function destroy(AdherentDossier $dossier): JsonResponse

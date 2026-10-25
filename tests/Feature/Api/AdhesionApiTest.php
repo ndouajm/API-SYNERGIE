@@ -126,7 +126,9 @@ class AdhesionApiTest extends TestCase
     {
         Storage::fake('local');
         $link = AdhesionLink::create(['code' => 'EXPORT01', 'nom' => 'Export', 'actif' => true]);
-        $selected = $this->postJson("/api/links/{$link->code}/dossiers", $this->validSubmission())->assertCreated();
+        $selected = $this->postJson("/api/links/{$link->code}/dossiers", $this->validSubmission([
+            'matricule' => '004518K',
+        ]))->assertCreated();
         $this->postJson("/api/links/{$link->code}/dossiers", $this->validSubmission([
             'matricule' => '204519K',
             'regionSyndicale' => 'BOUAKÉ',
@@ -136,14 +138,29 @@ class AdhesionApiTest extends TestCase
         Sanctum::actingAs($this->adminUser());
         $response = $this->get('/api/admin/dossiers/export?ids[]='.$selected->json('id'))
             ->assertOk()
-            ->assertHeader('content-type', 'text/csv; charset=UTF-8');
+            ->assertHeader('content-type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
 
         $content = $response->streamedContent();
-        $this->assertStringContainsString('LISTE DES SYNDIQUÉS DE SYNERGIE', $content);
-        $this->assertStringContainsString('"N° d’ordre";"N° dossier";Matricule;"Nom et prénom(s)";"Région syndicale";"Contact (téléphone)";"Contact (WhatsApp)"', $content);
-        $this->assertStringContainsString('ABIDJAN', $content);
-        $this->assertStringNotContainsString('KOUASSI', $content);
-        $this->assertStringNotContainsString('BOUAKÉ', $content);
+        $this->assertStringStartsWith('PK', $content);
+        $archivePath = tempnam(sys_get_temp_dir(), 'synergie-test-xlsx-');
+        file_put_contents($archivePath, $content);
+        $archive = new \ZipArchive;
+        try {
+            $this->assertTrue($archive->open($archivePath));
+            $sheet = $archive->getFromName('xl/worksheets/sheet1.xml');
+            $this->assertIsString($sheet);
+            $xml = new \DOMDocument;
+            $this->assertTrue($xml->loadXML($sheet));
+            $this->assertStringContainsString('LISTE DES SYNDIQUÉS DE SYNERGIE', $sheet);
+            $this->assertStringContainsString('N° d’ordre', $sheet);
+            $this->assertStringContainsString('ABIDJAN', $sheet);
+            $this->assertStringContainsString('t="inlineStr"><is><t xml:space="preserve">004518K</t>', $sheet);
+            $this->assertStringNotContainsString('KOUASSI', $sheet);
+            $this->assertStringNotContainsString('BOUAKÉ', $sheet);
+        } finally {
+            $archive->close();
+            unlink($archivePath);
+        }
     }
 
     public function test_deleting_a_dossier_requires_authentication(): void
@@ -241,8 +258,8 @@ class AdhesionApiTest extends TestCase
         Sanctum::actingAs($exporter);
         $export = $this->get('/api/admin/dossiers/export')
             ->assertOk()
-            ->assertHeader('content-type', 'text/csv; charset=UTF-8');
-        $this->assertStringContainsString('NOUVEAU NOM', $export->streamedContent());
+            ->assertHeader('content-type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+        $this->assertStringStartsWith('PK', $export->streamedContent());
 
         $linkManager = User::factory()->create();
         $linkManager->assignRoles(['link_manager']);

@@ -2,6 +2,8 @@
 
 Backend REST Laravel 12 pour l'application d'adhésion React. Les pièces jointes sont enregistrées sur le disque privé Laravel et ne sont servies qu'aux comptes ayant la permission dédiée.
 
+Les exports Excel `.xlsx` utilisent l'extension PHP `ZipArchive` (`ext-zip`), activée par défaut dans la distribution PHP recommandée pour Laragon.
+
 ## Configuration locale (Laragon)
 
 1. Créer une base MySQL vide nommée `synergie_adhesion`.
