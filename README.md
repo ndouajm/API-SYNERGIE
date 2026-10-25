@@ -107,3 +107,8 @@ Pour supprimer un dossier dans Postman, envoyer `DELETE http://127.0.0.1:8000/ap
 php artisan route:list --path=api
 php artisan test
 ```
+
+Les tests sont isolés de `.env` : leur bootstrap force SQLite en mémoire (`:memory:`), vide `DB_URL`
+et utilise un chemin de cache de configuration temporaire propre au processus. Ils ne se connectent
+donc pas à la base configurée pour l'application et `RefreshDatabase` ne peut effacer que les données
+de la base temporaire des tests.

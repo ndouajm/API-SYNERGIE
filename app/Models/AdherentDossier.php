@@ -17,6 +17,7 @@ class AdherentDossier extends Model
         'fonction_syndicale',
         'employeur',
         'etablissement',
+        'region_syndicale',
         'deja_syndique',
         'syndicat_precedent',
         'telephone',

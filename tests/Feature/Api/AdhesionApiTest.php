@@ -49,6 +49,19 @@ class AdhesionApiTest extends TestCase
         $this->assertDatabaseCount('adherent_dossiers', 0);
     }
 
+    public function test_public_submission_requires_a_valid_syndical_region(): void
+    {
+        $link = AdhesionLink::create(['code' => 'REGION01', 'nom' => 'Campagne', 'actif' => true]);
+
+        $this->postJson("/api/links/{$link->code}/dossiers", $this->validSubmission([
+            'regionSyndicale' => 'REGION INCONNUE',
+        ]))
+            ->assertUnprocessable()
+            ->assertJsonValidationErrors('regionSyndicale');
+
+        $this->assertDatabaseCount('adherent_dossiers', 0);
+    }
+
     public function test_public_submission_saves_documents_privately_and_generates_a_dossier_number(): void
     {
         Storage::fake('local');
@@ -61,6 +74,7 @@ class AdhesionApiTest extends TestCase
         $this->assertStringStartsWith('DOS-'.now()->format('Y').'-', $dossier->numero);
         $this->assertSame('SYNESCI', $dossier->syndicat_precedent);
         $this->assertSame('Aminata', $dossier->prenoms);
+        $this->assertSame('ABIDJAN', $dossier->region_syndicale);
         Storage::disk('local')->assertExists($dossier->photo_path);
         Storage::disk('local')->assertExists($dossier->signature_path);
 
@@ -106,6 +120,30 @@ class AdhesionApiTest extends TestCase
         $this->getJson('/api/admin/dossiers?per_page=1000')
             ->assertUnprocessable()
             ->assertJsonValidationErrors('per_page');
+    }
+
+    public function test_admin_can_export_only_selected_dossiers_as_the_requested_roster(): void
+    {
+        Storage::fake('local');
+        $link = AdhesionLink::create(['code' => 'EXPORT01', 'nom' => 'Export', 'actif' => true]);
+        $selected = $this->postJson("/api/links/{$link->code}/dossiers", $this->validSubmission())->assertCreated();
+        $this->postJson("/api/links/{$link->code}/dossiers", $this->validSubmission([
+            'matricule' => '204519K',
+            'regionSyndicale' => 'BOUAKÉ',
+            'nom' => 'KOUASSI',
+        ]))->assertCreated();
+
+        Sanctum::actingAs($this->adminUser());
+        $response = $this->get('/api/admin/dossiers/export?ids[]='.$selected->json('id'))
+            ->assertOk()
+            ->assertHeader('content-type', 'text/csv; charset=UTF-8');
+
+        $content = $response->streamedContent();
+        $this->assertStringContainsString('LISTE DES SYNDIQUÉS DE SYNERGIE', $content);
+        $this->assertStringContainsString('"N° d’ordre";"N° dossier";Matricule;"Nom et prénom(s)";"Région syndicale";"Contact (téléphone)";"Contact (WhatsApp)"', $content);
+        $this->assertStringContainsString('ABIDJAN', $content);
+        $this->assertStringNotContainsString('KOUASSI', $content);
+        $this->assertStringNotContainsString('BOUAKÉ', $content);
     }
 
     public function test_deleting_a_dossier_requires_authentication(): void
@@ -190,9 +228,13 @@ class AdhesionApiTest extends TestCase
         $editor = User::factory()->create();
         $editor->assignRoles(['adhesion_editor']);
         Sanctum::actingAs($editor);
-        $this->patchJson('/api/admin/dossiers/'.$dossier->json('id'), ['nom' => 'NOUVEAU NOM'])
+        $this->patchJson('/api/admin/dossiers/'.$dossier->json('id'), [
+            'nom' => 'NOUVEAU NOM',
+            'region_syndicale' => 'BOUAKÉ',
+        ])
             ->assertOk()
-            ->assertJsonPath('nom', 'NOUVEAU NOM');
+            ->assertJsonPath('nom', 'NOUVEAU NOM')
+            ->assertJsonPath('region_syndicale', 'BOUAKÉ');
 
         $exporter = User::factory()->create();
         $exporter->assignRoles(['adhesion_exporter']);
@@ -240,6 +282,7 @@ class AdhesionApiTest extends TestCase
             'fonctionSyndicale' => '',
             'employeur' => 'MENA',
             'etablissement' => 'EPP Cocody Danga',
+            'regionSyndicale' => 'ABIDJAN',
             'dejaSyndique' => true,
             'syndicats' => 'SYNESCI',
             'telephone' => '0708123456',

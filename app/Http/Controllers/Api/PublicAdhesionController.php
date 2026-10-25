@@ -6,6 +6,7 @@ use App\Http\Controllers\Controller;
 use App\Models\AdherentDossier;
 use App\Models\AdhesionLink;
 use App\Support\DataUrlImage;
+use App\Support\SyndicalRegion;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -45,6 +46,7 @@ class PublicAdhesionController extends Controller
             'fonctionSyndicale' => ['nullable', 'string', 'max:255'],
             'employeur' => ['required', 'string', 'max:255'],
             'etablissement' => ['required', 'string', 'max:255'],
+            'regionSyndicale' => ['required', Rule::in(SyndicalRegion::VALUES)],
             'dejaSyndique' => ['required', 'boolean'],
             'syndicats' => ['nullable', 'required_if:dejaSyndique,true', 'string', 'max:255'],
             'telephone' => ['required', 'string', 'max:30'],
@@ -98,6 +100,7 @@ class PublicAdhesionController extends Controller
                     'fonction_syndicale' => filled($data['fonctionSyndicale'] ?? null) ? trim($data['fonctionSyndicale']) : null,
                     'employeur' => trim($data['employeur']),
                     'etablissement' => trim($data['etablissement']),
+                    'region_syndicale' => $data['regionSyndicale'],
                     'deja_syndique' => $data['dejaSyndique'],
                     'syndicat_precedent' => $data['dejaSyndique'] ? trim($data['syndicats']) : null,
                     'telephone' => trim($data['telephone']),

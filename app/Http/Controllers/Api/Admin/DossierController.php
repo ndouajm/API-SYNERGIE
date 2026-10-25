@@ -4,6 +4,7 @@ namespace App\Http\Controllers\Api\Admin;
 
 use App\Http\Controllers\Controller;
 use App\Models\AdherentDossier;
+use App\Support\SyndicalRegion;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Response;
@@ -65,6 +66,7 @@ class DossierController extends Controller
             'fonction_syndicale' => ['nullable', 'string', 'max:255'],
             'employeur' => ['sometimes', 'required', 'string', 'max:255'],
             'etablissement' => ['sometimes', 'required', 'string', 'max:255'],
+            'region_syndicale' => ['sometimes', 'required', Rule::in(SyndicalRegion::VALUES)],
             'deja_syndique' => ['sometimes', 'required', 'boolean'],
             'syndicat_precedent' => ['nullable', 'required_if:deja_syndique,true', 'string', 'max:255'],
             'telephone' => ['sometimes', 'required', 'string', 'max:20'],
@@ -90,41 +92,67 @@ class DossierController extends Controller
         return response()->json($this->serialize($dossier->fresh(), $request->user()->hasPermission('documents.view')));
     }
 
-    public function export(): StreamedResponse
+    public function export(Request $request): StreamedResponse
     {
-        $fields = [
-            'N° dossier', 'Civilité', 'Nom', 'Prénoms', 'Matricule', 'Emploi', 'Fonction syndicale',
-            'Employeur', 'Établissement', 'Syndicat précédent', 'Téléphone', 'WhatsApp', 'Fait à', 'Date',
-        ];
+        $filters = $request->validate([
+            'ids' => ['sometimes', 'required', 'array', 'min:1'],
+            'ids.*' => ['required', 'integer', 'distinct', 'exists:adherent_dossiers,id'],
+        ]);
+        $selectedIds = $filters['ids'] ?? null;
+        $isRoster = $selectedIds !== null;
+        $fields = $isRoster
+            ? ['N° d’ordre', 'N° dossier', 'Matricule', 'Nom et prénom(s)', 'Région syndicale', 'Contact (téléphone)', 'Contact (WhatsApp)']
+            : [
+                'N° dossier', 'Civilité', 'Nom', 'Prénoms', 'Matricule', 'Emploi', 'Fonction syndicale',
+                'Employeur', 'Établissement', 'Région syndicale', 'Syndicat précédent', 'Téléphone', 'WhatsApp', 'Fait à', 'Date',
+            ];
 
-        return Response::streamDownload(function () use ($fields) {
+        return Response::streamDownload(function () use ($fields, $selectedIds, $isRoster) {
             $output = fopen('php://output', 'w');
             fwrite($output, "\xEF\xBB\xBF");
+            if ($isRoster) {
+                fputcsv($output, ['LISTE DES SYNDIQUÉS DE SYNERGIE'], ';', '"', '');
+            }
             fputcsv($output, $fields, ';');
-            foreach (AdherentDossier::query()->latest()->cursor() as $dossier) {
-                $cells = [
-                    $dossier->numero,
-                    $dossier->civilite,
-                    $dossier->nom,
-                    $dossier->prenoms,
-                    $dossier->matricule,
-                    $dossier->emploi,
-                    $dossier->fonction_syndicale,
-                    $dossier->employeur,
-                    $dossier->etablissement,
-                    $dossier->syndicat_precedent,
-                    $dossier->telephone,
-                    $dossier->whatsapp,
-                    $dossier->lieu,
-                    $dossier->created_at?->format('Y-m-d H:i:s'),
-                ];
+            $query = AdherentDossier::query()->latest();
+            if ($selectedIds !== null) {
+                $query->whereIn('id', $selectedIds);
+            }
+            foreach ($query->cursor() as $index => $dossier) {
+                $cells = $isRoster
+                    ? [
+                        $index + 1,
+                        $dossier->numero,
+                        $dossier->matricule,
+                        trim($dossier->nom.' '.$dossier->prenoms),
+                        $dossier->region_syndicale,
+                        $dossier->telephone,
+                        $dossier->whatsapp,
+                    ]
+                    : [
+                        $dossier->numero,
+                        $dossier->civilite,
+                        $dossier->nom,
+                        $dossier->prenoms,
+                        $dossier->matricule,
+                        $dossier->emploi,
+                        $dossier->fonction_syndicale,
+                        $dossier->employeur,
+                        $dossier->etablissement,
+                        $dossier->region_syndicale,
+                        $dossier->syndicat_precedent,
+                        $dossier->telephone,
+                        $dossier->whatsapp,
+                        $dossier->lieu,
+                        $dossier->created_at?->format('Y-m-d H:i:s'),
+                    ];
                 $cells = array_map(fn ($value) => is_string($value) && preg_match('/^\s*[=+\-@]/u', $value) ? "'".$value : $value, $cells);
                 fputcsv($output, [
                     ...$cells,
                 ], ';', '"', '');
             }
             fclose($output);
-        }, 'adhesions-'.now()->format('Y-m-d').'.csv', [
+        }, ($isRoster ? 'liste-syndiques-synergie-' : 'adhesions-').now()->format('Y-m-d').'.csv', [
             'Content-Type' => 'text/csv; charset=UTF-8',
         ]);
     }
@@ -175,6 +203,7 @@ class DossierController extends Controller
             'fonction_syndicale' => $dossier->fonction_syndicale,
             'employeur' => $dossier->employeur,
             'etablissement' => $dossier->etablissement,
+            'region_syndicale' => $dossier->region_syndicale,
             'deja_syndique' => $dossier->deja_syndique,
             'syndicat_precedent' => $dossier->syndicat_precedent,
             'telephone' => $dossier->telephone,
