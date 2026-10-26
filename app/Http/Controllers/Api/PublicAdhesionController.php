@@ -82,7 +82,7 @@ class PublicAdhesionController extends Controller
 
         try {
             foreach ($images as $attribute => $image) {
-                $path = 'dossiers/'.now()->format('Y').'/'.Str::uuid().'.'.$image['extension'];
+                $path = 'dossiers/'.now()->format('Y').'/'.now()->format('m').'/'.Str::uuid().'.'.$image['extension'];
                 $storedPaths[$attribute] = $path;
                 if (! Storage::disk('local')->put($path, $image['contents'])) {
                     throw new RuntimeException("Impossible d'enregistrer le document {$attribute}.");
