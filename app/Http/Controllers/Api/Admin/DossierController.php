@@ -22,7 +22,7 @@ class DossierController extends Controller
             'search' => ['nullable', 'string', 'max:255'],
             'per_page' => ['nullable', 'integer', 'min:1', 'max:100'],
         ]);
-        $query = AdherentDossier::query()->latest();
+        $query = AdherentDossier::query()->with('assistanceBeneficiaries')->latest();
         $search = trim($filters['search'] ?? '');
 
         if ($search !== '') {
@@ -158,6 +158,7 @@ class DossierController extends Controller
             $dossier->cni_recto_path,
             $dossier->cni_verso_path,
             $dossier->signature_path,
+            ...$dossier->assistanceBeneficiaries()->pluck('justificatif_path')->all(),
         ]);
 
         $dossier->delete();
@@ -176,8 +177,14 @@ class DossierController extends Controller
             'cni-recto' => 'cni_recto_path',
             'cni-verso' => 'cni_verso_path',
             'signature' => 'signature_path',
-            default => abort(404),
+            default => null,
         };
+        if ($pathAttribute === null && preg_match('/\Aassistance-justificatif-(\d+)\z/', $document, $matches)) {
+            $beneficiary = $dossier->assistanceBeneficiaries()->findOrFail($matches[1]);
+
+            return Storage::disk('local')->download($beneficiary->justificatif_path, $beneficiary->justificatif_nom);
+        }
+        abort_if($pathAttribute === null, 404);
         $path = $dossier->{$pathAttribute};
         abort_unless(Storage::disk('local')->exists($path), 404);
 
@@ -205,6 +212,21 @@ class DossierController extends Controller
             'lieu' => $dossier->lieu,
             'precompte' => $dossier->precompte,
             'consentement' => $dossier->consentement,
+            'synergie_assistance' => $dossier->synergie_assistance,
+            'assistance_beneficiaries' => $dossier->assistanceBeneficiaries->map(fn ($beneficiary) => [
+                'id' => $beneficiary->id,
+                'nom' => $beneficiary->nom,
+                'prenoms' => $beneficiary->prenoms,
+                'lien_parental' => $beneficiary->lien_parental,
+                'parents_decedes' => $beneficiary->parents_decedes,
+                'date_naissance' => $beneficiary->date_naissance,
+                'telephone' => $beneficiary->telephone,
+                'lieu_residence' => $beneficiary->lieu_residence,
+                'justificatif_nom' => $beneficiary->justificatif_nom,
+                'justificatif' => $includeDocuments
+                    ? $this->documentUrl($dossier, 'assistance-justificatif-'.$beneficiary->id)
+                    : null,
+            ]),
             'has_signature' => $dossier->signature_path !== null,
             'documents' => $includeDocuments ? [
                 'photo' => $this->documentUrl($dossier, 'photo'),

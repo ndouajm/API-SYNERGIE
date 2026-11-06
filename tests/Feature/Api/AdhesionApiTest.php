@@ -62,6 +62,114 @@ class AdhesionApiTest extends TestCase
         $this->assertDatabaseCount('adherent_dossiers', 0);
     }
 
+    public function test_public_submission_saves_assistance_beneficiaries_and_their_justificatifs(): void
+    {
+        Storage::fake('local');
+        $link = AdhesionLink::create(['code' => 'ASSIST01', 'nom' => 'Campagne assistance', 'actif' => true]);
+        $pdf = 'data:application/pdf;base64,'.base64_encode("%PDF-1.4\nJustificatif\n%%EOF");
+
+        $response = $this->postJson("/api/links/{$link->code}/dossiers", $this->validSubmission([
+            'synergieAssistance' => true,
+            'assistanceBeneficiaries' => [[
+                'nom' => 'TRAORE',
+                'prenoms' => 'Mariam',
+                'lienParente' => 'conjoint',
+                'dateNaissance' => '1990-04-15',
+                'telephone' => '0709123456',
+                'lieuResidence' => 'Cocody, Abidjan',
+                'parentsDecedes' => false,
+                'justificatif' => $pdf,
+                'justificatifNom' => 'acte-mariage.pdf',
+            ]],
+        ]));
+
+        $response->assertCreated()
+            ->assertJsonPath('synergie_assistance', true)
+            ->assertJsonPath('assistance_beneficiaries.0.nom', 'TRAORE')
+            ->assertJsonPath('assistance_beneficiaries.0.lien_parental', 'conjoint')
+            ->assertJsonPath('assistance_beneficiaries.0.date_naissance', '1990-04-15')
+            ->assertJsonPath('assistance_beneficiaries.0.telephone', '0709123456')
+            ->assertJsonPath('assistance_beneficiaries.0.lieu_residence', 'Cocody, Abidjan')
+            ->assertJsonPath('assistance_beneficiaries.0.justificatif_nom', 'acte-mariage.pdf');
+
+        $dossier = AdherentDossier::with('assistanceBeneficiaries')->firstOrFail();
+        $beneficiary = $dossier->assistanceBeneficiaries->firstOrFail();
+        Storage::disk('local')->assertExists($beneficiary->justificatif_path);
+        $this->assertDatabaseHas('adherent_dossiers', [
+            'id' => $dossier->id,
+            'synergie_assistance' => true,
+        ]);
+
+        Sanctum::actingAs($this->adminUser());
+        $documentUrl = $this->getJson('/api/admin/dossiers/'.$dossier->id)
+            ->assertOk()
+            ->json('assistance_beneficiaries.0.justificatif');
+        $this->get($documentUrl)
+            ->assertOk()
+            ->assertHeader('content-disposition', 'attachment; filename=acte-mariage.pdf');
+
+        $this->deleteJson('/api/admin/dossiers/'.$dossier->id)->assertOk();
+        Storage::disk('local')->assertMissing($beneficiary->justificatif_path);
+    }
+
+    public function test_public_submission_rejects_a_substitute_without_the_required_declaration(): void
+    {
+        $link = AdhesionLink::create(['code' => 'SUBSTIT01', 'nom' => 'Campagne', 'actif' => true]);
+        $image = $this->validSubmission()['photo'];
+
+        $this->postJson("/api/links/{$link->code}/dossiers", $this->validSubmission([
+            'synergieAssistance' => true,
+            'assistanceBeneficiaries' => [[
+                'nom' => 'KONE',
+                'prenoms' => 'Awa',
+                'lienParente' => 'substitut',
+                'telephone' => '0709123456',
+                'lieuResidence' => 'Yopougon, Abidjan',
+                'parentsDecedes' => false,
+                'justificatif' => $image,
+                'justificatifNom' => 'attestation.png',
+            ]],
+        ]))
+            ->assertUnprocessable()
+            ->assertJsonValidationErrors('assistanceBeneficiaries.0.parentsDecedes');
+
+        $this->assertDatabaseCount('adherent_dossiers', 0);
+    }
+
+    public function test_public_submission_requires_valid_assistance_beneficiary_contact_details(): void
+    {
+        $link = AdhesionLink::create(['code' => 'CONTACT01', 'nom' => 'Campagne', 'actif' => true]);
+        $image = $this->validSubmission()['photo'];
+        $beneficiary = [
+            'nom' => 'KONE',
+            'prenoms' => 'Awa',
+            'lienParente' => 'descendant',
+            'dateNaissance' => '2018-05-01',
+            'telephone' => '123',
+            'lieuResidence' => 'Abidjan',
+            'justificatif' => $image,
+            'justificatifNom' => 'attestation.png',
+        ];
+
+        $this->postJson("/api/links/{$link->code}/dossiers", $this->validSubmission([
+            'synergieAssistance' => true,
+            'assistanceBeneficiaries' => [$beneficiary],
+        ]))
+            ->assertUnprocessable()
+            ->assertJsonValidationErrors('assistanceBeneficiaries.0.telephone');
+
+        $beneficiary['telephone'] = '0709123456';
+        $beneficiary['lieuResidence'] = '';
+        $this->postJson("/api/links/{$link->code}/dossiers", $this->validSubmission([
+            'synergieAssistance' => true,
+            'assistanceBeneficiaries' => [$beneficiary],
+        ]))
+            ->assertUnprocessable()
+            ->assertJsonValidationErrors('assistanceBeneficiaries.0.lieuResidence');
+
+        $this->assertDatabaseCount('adherent_dossiers', 0);
+    }
+
     public function test_public_submission_saves_documents_privately_and_generates_a_dossier_number(): void
     {
         Storage::fake('local');
@@ -69,7 +177,10 @@ class AdhesionApiTest extends TestCase
 
         $response = $this->postJson("/api/links/{$link->code}/dossiers", $this->validSubmission());
 
-        $response->assertCreated()->assertJsonStructure(['id', 'numero', 'created_at']);
+        $response->assertCreated()
+            ->assertJsonStructure(['id', 'numero', 'created_at'])
+            ->assertJsonPath('synergie_assistance', false)
+            ->assertJsonPath('assistance_beneficiaries', []);
         $dossier = AdherentDossier::firstOrFail();
         $this->assertStringStartsWith('DOS-'.now()->format('Y').'-', $dossier->numero);
         $this->assertSame('SYNESCI', $dossier->syndicat_precedent);
@@ -311,6 +422,8 @@ class AdhesionApiTest extends TestCase
             'cniRecto' => $dataUrl,
             'cniVerso' => $dataUrl,
             'signature' => ['data' => $dataUrl],
+            'synergieAssistance' => false,
+            'assistanceBeneficiaries' => [],
         ], $overrides);
     }
 }

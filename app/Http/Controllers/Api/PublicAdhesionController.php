@@ -5,6 +5,7 @@ namespace App\Http\Controllers\Api;
 use App\Http\Controllers\Controller;
 use App\Models\AdherentDossier;
 use App\Models\AdhesionLink;
+use App\Support\DataUrlDocument;
 use App\Support\DataUrlImage;
 use App\Support\SyndicalRegion;
 use Illuminate\Http\JsonResponse;
@@ -58,7 +59,31 @@ class PublicAdhesionController extends Controller
             'cniRecto' => ['required', 'string', 'max:7000000'],
             'cniVerso' => ['required', 'string', 'max:7000000'],
             'signature.data' => ['required', 'string', 'max:7000000'],
+            'synergieAssistance' => ['required', 'boolean'],
+            'assistanceBeneficiaries' => ['exclude_unless:synergieAssistance,true', 'required', 'array', 'min:1', 'max:8'],
+            'assistanceBeneficiaries.*.nom' => ['required', 'string', 'max:255'],
+            'assistanceBeneficiaries.*.prenoms' => ['required', 'string', 'max:255'],
+            'assistanceBeneficiaries.*.lienParente' => ['required', Rule::in(['conjoint', 'descendant', 'ascendant', 'substitut'])],
+            'assistanceBeneficiaries.*.parentsDecedes' => ['nullable', 'boolean'],
+            'assistanceBeneficiaries.*.dateNaissance' => ['nullable', 'date_format:Y-m-d', 'before_or_equal:today'],
+            'assistanceBeneficiaries.*.telephone' => ['required', 'string', 'max:30'],
+            'assistanceBeneficiaries.*.lieuResidence' => ['required', 'string', 'max:255'],
+            'assistanceBeneficiaries.*.justificatif' => ['required', 'string', 'max:3000000'],
+            'assistanceBeneficiaries.*.justificatifNom' => ['required', 'string', 'max:255'],
         ]);
+
+        foreach ($data['assistanceBeneficiaries'] ?? [] as $index => $beneficiary) {
+            if (strlen(preg_replace('/\D/', '', $beneficiary['telephone'])) !== 10) {
+                throw ValidationException::withMessages([
+                    "assistanceBeneficiaries.{$index}.telephone" => ['Le numéro de téléphone doit contenir exactement 10 chiffres.'],
+                ]);
+            }
+            if ($beneficiary['lienParente'] === 'substitut' && ! ($beneficiary['parentsDecedes'] ?? false)) {
+                throw ValidationException::withMessages([
+                    "assistanceBeneficiaries.{$index}.parentsDecedes" => ['Confirmez que vos deux parents sont décédés avant le début des prestations.'],
+                ]);
+            }
+        }
 
         $data['matricule'] = strtoupper(preg_replace('/\s+/', '', $data['matricule']));
         if (strlen(preg_replace('/\D/', '', $data['telephone'])) !== 10) {
@@ -78,7 +103,18 @@ class PublicAdhesionController extends Controller
             'cni_verso_path' => DataUrlImage::decode($data['cniVerso'], 'cniVerso'),
             'signature_path' => DataUrlImage::decode($data['signature']['data'], 'signature.data'),
         ];
+        $assistanceUploads = [];
+        foreach ($data['assistanceBeneficiaries'] ?? [] as $index => $beneficiary) {
+            $assistanceUploads[$index] = [
+                'beneficiary' => $beneficiary,
+                'document' => DataUrlDocument::decode(
+                    $beneficiary['justificatif'],
+                    "assistanceBeneficiaries.{$index}.justificatif",
+                ),
+            ];
+        }
         $storedPaths = [];
+        $assistancePaths = [];
 
         try {
             foreach ($images as $attribute => $image) {
@@ -89,7 +125,15 @@ class PublicAdhesionController extends Controller
                 }
             }
 
-            $dossier = DB::transaction(function () use ($data, $link, $storedPaths) {
+            foreach ($assistanceUploads as $index => $upload) {
+                $path = 'dossiers/'.now()->format('Y').'/'.now()->format('m').'/'.Str::uuid().'.'.$upload['document']['extension'];
+                $assistancePaths[$index] = $path;
+                if (! Storage::disk('local')->put($path, $upload['document']['contents'])) {
+                    throw new RuntimeException("Impossible d'enregistrer le justificatif du bénéficiaire {$index}.");
+                }
+            }
+
+            $dossier = DB::transaction(function () use ($data, $link, $storedPaths, $assistanceUploads, $assistancePaths) {
                 $dossier = AdherentDossier::create([
                     'numero' => 'DOS-PENDING-'.Str::uuid(),
                     'civilite' => $data['civilite'],
@@ -108,9 +152,25 @@ class PublicAdhesionController extends Controller
                     'lieu' => trim($data['lieu']),
                     'precompte' => true,
                     'consentement' => true,
+                    'synergie_assistance' => $data['synergieAssistance'],
                     ...$storedPaths,
                     'adhesion_link_id' => $link->id,
                 ]);
+
+                foreach ($assistanceUploads as $index => $upload) {
+                    $beneficiary = $upload['beneficiary'];
+                    $dossier->assistanceBeneficiaries()->create([
+                        'nom' => trim($beneficiary['nom']),
+                        'prenoms' => trim($beneficiary['prenoms']),
+                        'lien_parental' => $beneficiary['lienParente'],
+                        'parents_decedes' => $beneficiary['lienParente'] === 'substitut',
+                        'date_naissance' => $beneficiary['dateNaissance'] ?? null,
+                        'telephone' => trim($beneficiary['telephone']),
+                        'lieu_residence' => trim($beneficiary['lieuResidence']),
+                        'justificatif_path' => $assistancePaths[$index],
+                        'justificatif_nom' => basename(str_replace('\\', '/', trim($beneficiary['justificatifNom']))),
+                    ]);
+                }
 
                 $dossier->update([
                     'numero' => sprintf('DOS-%s-%05d', now()->format('Y'), $dossier->id),
@@ -119,7 +179,7 @@ class PublicAdhesionController extends Controller
                 return $dossier->fresh();
             });
         } catch (Throwable $exception) {
-            Storage::disk('local')->delete(array_values($storedPaths));
+            Storage::disk('local')->delete([...array_values($storedPaths), ...array_values($assistancePaths)]);
             throw $exception;
         }
 
@@ -127,6 +187,18 @@ class PublicAdhesionController extends Controller
             'id' => $dossier->id,
             'numero' => $dossier->numero,
             'created_at' => $dossier->created_at,
+            'synergie_assistance' => $dossier->synergie_assistance,
+            'assistance_beneficiaries' => $dossier->assistanceBeneficiaries->map(fn ($beneficiary) => [
+                'id' => $beneficiary->id,
+                'nom' => $beneficiary->nom,
+                'prenoms' => $beneficiary->prenoms,
+                'lien_parental' => $beneficiary->lien_parental,
+                'parents_decedes' => $beneficiary->parents_decedes,
+                'date_naissance' => $beneficiary->date_naissance,
+                'telephone' => $beneficiary->telephone,
+                'lieu_residence' => $beneficiary->lieu_residence,
+                'justificatif_nom' => $beneficiary->justificatif_nom,
+            ]),
         ], 201);
     }
 }
