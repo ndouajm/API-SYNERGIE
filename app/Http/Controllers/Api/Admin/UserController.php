@@ -54,6 +54,7 @@ class UserController extends Controller
         $data = $request->validate([
             'name' => ['sometimes', 'required', 'string', 'max:255'],
             'email' => ['sometimes', 'required', 'email', 'max:255', Rule::unique('users', 'email')->ignore($user->id)],
+            'password' => ['sometimes', 'nullable', 'string', 'min:12'],
             'roles' => ['sometimes', 'required', 'array', 'min:1'],
             'roles.*' => ['required', 'string', Rule::in(array_keys(config('rbac.roles')))],
         ]);
@@ -78,11 +79,38 @@ class UserController extends Controller
             }
         }
 
-        DB::transaction(function () use ($data, $user, $rolesChanged) {
-            $user->fill(collect($data)->except('roles')->all())->save();
+        $passwordChanged = ! empty($data['password']);
+
+        DB::transaction(function () use ($data, $user, $rolesChanged, $passwordChanged, $request) {
+            $userAttributes = collect($data)->except(['roles', 'password'])->all();
+            if (isset($userAttributes['name'])) {
+                $userAttributes['name'] = trim($userAttributes['name']);
+            }
+            if (isset($userAttributes['email'])) {
+                $userAttributes['email'] = strtolower(trim($userAttributes['email']));
+            }
+            if ($passwordChanged) {
+                $userAttributes['password'] = Hash::make($data['password']);
+            }
+
+            if (! empty($userAttributes)) {
+                $user->fill($userAttributes)->save();
+            }
+
             if ($rolesChanged) {
                 $user->assignRoles($data['roles']);
                 $user->tokens()->delete();
+            }
+
+            if ($passwordChanged) {
+                if ($request->user() && $request->user()->is($user)) {
+                    $currentToken = $request->user()->currentAccessToken();
+                    if ($currentToken) {
+                        $user->tokens()->where('id', '!=', $currentToken->id)->delete();
+                    }
+                } else {
+                    $user->tokens()->delete();
+                }
             }
         });
 

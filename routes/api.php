@@ -21,6 +21,7 @@ Route::get('/admin/dossiers/{dossier}/documents/{document}', [DossierController:
 Route::middleware(['auth:sanctum', 'throttle:120,1'])->group(function () {
     Route::get('/auth/me', [AuthController::class, 'me']);
     Route::post('/auth/logout', [AuthController::class, 'logout']);
+    Route::patch('/auth/password', [AuthController::class, 'updatePassword']);
 
     Route::prefix('admin')->group(function () {
         Route::middleware('permission:dashboard.view')->get('/dashboard', DashboardController::class);

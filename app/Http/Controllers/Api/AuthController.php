@@ -46,6 +46,34 @@ class AuthController extends Controller
         return response()->json(['message' => 'Session fermée.']);
     }
 
+    public function updatePassword(Request $request): JsonResponse
+    {
+        $rules = [
+            'password' => ['required', 'string', 'min:12'],
+        ];
+
+        if ($request->filled('current_password')) {
+            $rules['current_password'] = ['required', 'string', 'current_password'];
+        }
+
+        $validated = $request->validate($rules, [
+            'current_password.current_password' => 'Le mot de passe actuel est incorrect.',
+            'password.min' => 'Le nouveau mot de passe doit comporter au moins 12 caractères.',
+            'password.required' => 'Veuillez saisir un nouveau mot de passe.',
+        ]);
+
+        $user = $request->user();
+        $user->password = Hash::make($validated['password']);
+        $user->save();
+
+        $currentToken = $user->currentAccessToken();
+        if ($currentToken) {
+            $user->tokens()->where('id', '!=', $currentToken->id)->delete();
+        }
+
+        return response()->json(['message' => 'Mot de passe mis à jour avec succès.']);
+    }
+
     private function serializeUser(User $user): array
     {
         return [
