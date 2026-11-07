@@ -8,9 +8,6 @@ return new class extends Migration
 {
     public function up(): void
     {
-        Schema::table('adherent_dossiers', function (Blueprint $table) {
-            $table->boolean('synergie_assistance')->default(false);
-        });
 
         Schema::create('assistance_beneficiaries', function (Blueprint $table) {
             $table->id();
@@ -21,6 +18,9 @@ return new class extends Migration
             $table->boolean('parents_decedes')->default(false);
             $table->string('justificatif_path');
             $table->string('justificatif_nom');
+            $table->date('date_naissance')->nullable();
+            $table->string('telephone', 30)->nullable();
+            $table->string('lieu_residence')->nullable();
             $table->timestamps();
         });
     }

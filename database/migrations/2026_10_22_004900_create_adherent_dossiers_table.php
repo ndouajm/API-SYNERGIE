@@ -22,6 +22,7 @@ return new class extends Migration
             $table->string('fonction_syndicale')->nullable();
             $table->string('employeur');
             $table->string('etablissement');
+            $table->string('region_syndicale')->nullable();
             $table->boolean('deja_syndique')->default(false);
             $table->string('syndicat_precedent')->nullable();
             $table->string('telephone', 20);
@@ -29,6 +30,7 @@ return new class extends Migration
             $table->string('lieu');
             $table->boolean('precompte')->default(false);
             $table->boolean('consentement')->default(false);
+            $table->boolean('synergie_assistance')->default(false);
             $table->string('photo_path');
             $table->string('cni_recto_path');
             $table->string('cni_verso_path');
