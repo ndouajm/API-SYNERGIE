@@ -21,7 +21,7 @@ return [
 
     'allowed_origins' => array_filter(array_map(
         'trim',
-        explode(',', env('FRONTEND_URL', 'https://synergieci.org','https://dev.synergieci.org/')),
+        explode(',', env('FRONTEND_URL', 'https://synergieci.org','https://dev.synergieci.org')),
     )),
 
     'allowed_origins_patterns' => [
